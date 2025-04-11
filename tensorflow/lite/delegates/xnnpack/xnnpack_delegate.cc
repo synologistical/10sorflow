@@ -71,6 +71,13 @@ namespace tflite {
 namespace xnnpack {
 namespace {
 
+// VisitDotAttentionNode uses a clamp to add a constant value to the XNNPack
+// subgraph. The constant data must outlive the XNNPack delegate and there is no
+// simple way of doing this. Therefore a clamp was used to clamp some arbitrary
+// data to this constant value. The static input data to the clamp can be
+// anything.
+const float kConstantClampData = 0.f;
+
 constexpr char kOdmlSDPA[] = "odml.scaled_dot_product_attention";
 
 template <typename T>
@@ -312,17 +319,18 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
           if (!CheckFp16Scale(context, tensor, t, quantization_params)) {
             return xnn_datatype_invalid;
           }
-          int num_scales =
+          int64_t num_scales =
               NumElements(&context->tensors[quantization_params->scale]);
-          int num_filter_elements = NumElements(&tensor);
+          int64_t num_filter_elements = NumElements(&tensor);
           if (num_filter_elements / num_scales !=
               quantization_params->blocksize) {
-            TF_LITE_KERNEL_LOG(context,
-                               "Unsupported combination of filter elements %d "
-                               "number of scales %d and blocksize %d "
-                               "%s tensor %d in XNNPACK delegate",
-                               num_filter_elements, num_scales,
-                               quantization_params->blocksize, t);
+            TF_LITE_KERNEL_LOG(
+                context,
+                "Unsupported combination of filter elements %" PRId64
+                " number of scales %" PRId64 " and blocksize %" PRId32
+                " for %s tensor %d in XNNPACK delegate",
+                num_filter_elements, num_scales, quantization_params->blocksize,
+                tensor.name, t);
             return xnn_datatype_invalid;
           }
           break;
@@ -344,9 +352,10 @@ xnn_datatype GetXNNPackDatatype(TfLiteContext* context,
             case kTfLiteBlockwiseQuantization:
               return xnn_datatype_qbint4;
             default:
-              TF_LITE_KERNEL_LOG(
-                  context,
-                  "Unsupported quantization type %zu for INT4 tensor #%d", t);
+              TF_LITE_KERNEL_LOG(context,
+                                 "Unsupported quantization type %d for INT4 "
+                                 "tensor %d in XNNPACK delegate",
+                                 tensor.quantization.type, t);
               return xnn_datatype_invalid;
           }
         case kTfLiteInt8:
@@ -2324,8 +2333,8 @@ class Subgraph {
               if (quantization_params->blocksize % 32 != 0) {
                 TF_LITE_MAYBE_KERNEL_LOG(
                     context,
-                    "Blocksize %zu must be multiple of 32 in "
-                    "tensor #%d in node #%d",
+                    "Blocksize %" PRId32
+                    " must be multiple of 32 in tensor #%d in node #%d",
                     quantization_params->blocksize, tensor_index, node_index);
                 return kTfLiteError;
               }
@@ -4365,11 +4374,11 @@ class Subgraph {
         logging_context, axis_tensor, node->inputs->data[1],
         BuiltinOperator_EXPAND_DIMS, node_index));
 
-    const size_t num_new_axes = NumElements(&axis_tensor);
+    const int64_t num_new_axes = NumElements(&axis_tensor);
     if (num_new_axes != 1) {
       TF_LITE_MAYBE_KERNEL_LOG(logging_context,
-                               "unexpected number of axes (%d) in node #%d: "
-                               "TFLite only supports 1 new axes",
+                               "unexpected number of axes (%" PRId64
+                               ") in node #%d: TFLite only supports 1 new axes",
                                num_new_axes, node_index);
       return kTfLiteError;
     }
@@ -5765,13 +5774,14 @@ class Subgraph {
       // inside our kernels; check here and punt those to the default
       // delegate implementation for it to decide how to handle them.
       const int64_t extent = input_tensor.dims->data[i];
-      const size_t offset = begins[i] < 0 ? begins[i] + extent : begins[i];
-      const size_t size =
+      const int64_t offset = begins[i] < 0 ? begins[i] + extent : begins[i];
+      const int64_t size =
           ends[i] <= 0 ? ends[i] + extent - offset : ends[i] - offset;
       if (offset + size > extent) {
         TF_LITE_MAYBE_KERNEL_LOG(logging_context,
-                                 "offset %zu + size %zu exceeds extent %zu in "
-                                 "STRIDED_SLICE node #%d for dimension %zu",
+                                 "offset %" PRId64 " + size %" PRId64
+                                 " exceeds extent %" PRId64
+                                 " in STRIDED_SLICE node #%d for dimension %zu",
                                  offset, size, extent, node_index, i);
         return kTfLiteError;
       }
@@ -5886,7 +5896,7 @@ class Subgraph {
         TF_LITE_ENSURE_EQ(
             logging_context, xnn_status_success,
             xnn_define_tensor_value(subgraph, xnn_datatype_fp32, /*num_dims=*/0,
-                                    /*dims=*/nullptr, &query_proj.dims->data[3],
+                                    /*dims=*/nullptr, &kConstantClampData,
                                     XNN_INVALID_VALUE_ID, 0, &scale_orig_id));
         TF_LITE_ENSURE_EQ(
             logging_context, xnn_status_success,

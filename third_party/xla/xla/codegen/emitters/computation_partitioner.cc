@@ -95,8 +95,10 @@ EpilogueSpecification EpilogueSpecification::FromIdentityIndexing(
     const HloInstruction* hero, const HloInstruction* root,
     mlir::MLIRContext* mlir_context) {
   EpilogueSpecification result;
-  absl::c_copy(root->shape().dimensions(),
-               std::back_inserter(result.index_ranges));
+  if (root->shape().IsArray()) {
+    absl::c_copy(root->shape().dimensions(),
+                 std::back_inserter(result.index_ranges));
+  }
   result.roots.push_back(root);
   result.root_indexing.push_back(
       CreateIdentityMap(root->shape(), mlir_context));
@@ -438,7 +440,7 @@ const PartitionedComputation::Subgraph& PartitionedComputations::FindSubgraph(
 CallTargetProvider PartitionedComputations::CreateCallTargetProvider(
     const absl::flat_hash_map<const PartitionedComputation::Subgraph*,
                               mlir::func::FuncOp>& subgraph_to_func) const {
-  return [&, this](const HloInstruction* instr) {
+  return [subgraph_to_func, this](const HloInstruction* instr) {
     const auto& subgraph = FindSubgraph(instr);
     CHECK(subgraph_to_func.contains(&subgraph))
         << "No function found for subgraph with instruction "

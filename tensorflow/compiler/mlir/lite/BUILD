@@ -377,6 +377,7 @@ cc_library(
     deps = [
         ":common",
         ":converter_flags_proto_cc",
+        ":optimize_broadcast_like_pass_options",
         ":optimize_pass_options",
         ":pass_options",
         ":pass_options_setter",
@@ -512,6 +513,7 @@ cc_library(
         ":converter_inc",
         ":cost_estimators",
         ":optimize_broadcast_like_pass",
+        ":optimize_broadcast_like_pass_options",
         ":optimize_pass_options",
         ":pass",
         ":pass_options",
@@ -1013,6 +1015,7 @@ cc_library(
         ":fake_quant_utils",
         ":lstm_utils",
         ":nms_utils",
+        ":optimize_broadcast_like_pass_options",
         ":perception_ops_utils",
         ":shape_and_size_utils",
         ":stateful_ops_utils",
@@ -1188,8 +1191,8 @@ cc_library(
     ],
     deps = [
         ":optimize_broadcast_like_inc_gen",
+        ":optimize_broadcast_like_pass_options",
         ":pass",
-        ":pass_options",
         ":tensorflow_lite_ops",
         ":utils",
         "@llvm-project//llvm:Support",
@@ -1197,6 +1200,7 @@ cc_library(
         "@llvm-project//mlir:Dialect",
         "@llvm-project//mlir:FuncDialect",
         "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:Pass",
         "@llvm-project//mlir:Support",
         "@llvm-project//mlir:TransformUtils",
     ],
@@ -1270,6 +1274,7 @@ cc_library(
     deps = [
         "convert_type",
         ":op_quant_spec_getters_inc",
+        ":optimize_broadcast_like_pass_options",
         ":shape_and_size_utils",
         ":stateful_ops_utils",
         ":tensorflow_lite",
@@ -1666,6 +1671,15 @@ cc_library(
 )
 
 cc_library(
+    name = "optimize_broadcast_like_pass_options",
+    hdrs = ["transforms/optimize_broadcast_like_pass_options.h"],
+    deps = [
+        "@llvm-project//llvm:Support",
+        "@llvm-project//mlir:Pass",
+    ],
+)
+
+cc_library(
     name = "flatbuffer_translate_lib",
     hdrs = [
         "flatbuffer_export.h",
@@ -1769,7 +1783,6 @@ tf_cc_binary(
         ":tf_to_tfl_flatbuffer",
         "//tensorflow/compiler/mlir:init_mlir",
         "//tensorflow/compiler/mlir/lite:converter_flags_proto_cc",
-        "//tensorflow/compiler/mlir/lite/tools:translate_cl_options",
         "//tensorflow/compiler/mlir/quantization/common/quantization_lib:quantization_config",
         "//tensorflow/compiler/mlir/tensorflow",
         "//tensorflow/compiler/mlir/tensorflow:mlir_roundtrip_flags",

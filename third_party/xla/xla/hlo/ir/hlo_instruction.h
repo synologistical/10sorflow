@@ -998,7 +998,7 @@ class HloInstruction {
   // Creates a dynamic reshape instruction. Similar to reshape but dynamic
   // dimensions sizes are provided as additional variadic arguments.
   //
-  // Precondition: dim_sizes.size() == shape.dimensions_size()
+  // Precondition: dim_sizes.size() == shape.dimensions().size()
   static std::unique_ptr<HloInstruction> CreateDynamicReshape(
       const Shape& shape, HloInstruction* data_operand,
       absl::Span<HloInstruction* const> dim_sizes);
@@ -1966,7 +1966,7 @@ class HloInstruction {
   absl::StatusOr<ConfigProto> backend_config() const {
     ConfigProto proto;
     TF_RETURN_IF_ERROR(backend_config_.GetProto(&proto));
-    return std::move(proto);
+    return proto;
   }
 
   absl::Status set_backend_config(const tsl::protobuf::Message& proto) {
