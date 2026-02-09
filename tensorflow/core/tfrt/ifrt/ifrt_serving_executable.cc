@@ -607,6 +607,24 @@ IfrtServingExecutable::CreateExecutableSynchronously(
       std::move(tf2hlo_result.compile_metadata);
   executable_bundle->host_callbacks = std::move(tf_host_callbacks);
 
+  executable_bundle->arg_hlo_shardings.reserve(
+      executable_bundle->compile_metadata.args().size());
+  for (int i = 0; i < executable_bundle->compile_metadata.args().size(); ++i) {
+    TF_ASSIGN_OR_RETURN(
+        xla::HloSharding hlo_sharding,
+        xla::HloSharding::FromProto(
+            executable_bundle->compile_metadata.args()[i].sharding()));
+    executable_bundle->arg_hlo_shardings.push_back(hlo_sharding);
+  }
+
+  executable_bundle->retval_hlo_shardings.reserve(
+      executable_bundle->compile_metadata.retvals().size());
+  for (const auto& retvals : executable_bundle->compile_metadata.retvals()) {
+    TF_ASSIGN_OR_RETURN(xla::HloSharding hlo_sharding,
+                        xla::HloSharding::FromProto(retvals.sharding()));
+    executable_bundle->retval_hlo_shardings.push_back(hlo_sharding);
+  }
+
   return executable_bundle;
 }
 
@@ -634,15 +652,10 @@ absl::Status IfrtServingExecutable::LoadAndRegisterVariableOnExecutable(
                        inputs[i].shape().DebugString(), " at index ", i));
     }
     std::string tensor_name = inputs[i].scalar<tsl::tstring>()();
-    TF_ASSIGN_OR_RETURN(
-        xla::HloSharding hlo_sharding,
-        xla::HloSharding::FromProto(
-            executable_bundle->compile_metadata.args()[i].sharding()));
-
     IfrtLoadedVariableRegistry::Key key{
         .device_ids = device_ids,
         .input_name = tensor_name,
-        .hlo_sharding = std::move(hlo_sharding),
+        .hlo_sharding = executable_bundle->arg_hlo_shardings[i],
         .shape_on_device = executable_bundle->xla_input_shapes.has_value()
                                ? executable_bundle->xla_input_shapes->at(i)
                                : nullptr,
@@ -873,7 +886,7 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
       IfrtLoadedVariableRegistry::Key key{
           .device_ids = device_ids,
           .input_name = inputs[i].scalar<tsl::tstring>()(),
-          .hlo_sharding = std::move(hlo_sharding),
+          .hlo_sharding = executable_bundle->arg_hlo_shardings[i],
           .shape_on_device = std::move(shape_ptr),
       };
       auto it = executable_bundle->variable_arrays.find(key);
@@ -954,18 +967,13 @@ absl::StatusOr<std::vector<tensorflow::Tensor>> IfrtServingExecutable::Execute(
   for (int i = 0; i < execution_result->outputs.size(); ++i) {
     tensorflow::TensorShape tensor_shape;
     const xla::ifrt::ArrayRef& array_for_copy = execution_result->outputs[i];
-    const tpu::TPUCompileMetadataProto::Retval& metadata_retval =
-        executable_bundle->compile_metadata.retvals()[i];
-
     // IFRT's return does not contain sufficient information; so we use
     // sharding spec from metadata.
     VLOG(2) << "Output sharding: " << array_for_copy->sharding().DebugString();
 
-    TF_ASSIGN_OR_RETURN(auto hlo_sharding, xla::HloSharding::FromProto(
-                                               metadata_retval.sharding()));
-    output_futures.push_back(MakeTensorFromArray(*ifrt_client_, *array_for_copy,
-                                                 hlo_sharding, device_list,
-                                                 thread_pool_));
+    output_futures.push_back(MakeTensorFromArray(
+        *ifrt_client_, *array_for_copy,
+        executable_bundle->retval_hlo_shardings[i], device_list, thread_pool_));
   }
 
   std::vector<tensorflow::Tensor> outputs;
@@ -1000,16 +1008,12 @@ absl::Status IfrtServingExecutable::AsyncLoadIfrtArray(
     }
     std::string tensor_name = inputs[i].scalar<tsl::tstring>()();
     // TODO(b/339521818): Add test cases for OpSharding on variables.
-    TF_ASSIGN_OR_RETURN(
-        xla::HloSharding hlo_sharding,
-        xla::HloSharding::FromProto(
-            executable_bundle.compile_metadata.args()[i].sharding()));
     std::shared_ptr<xla::Shape> shape_ptr = nullptr;
     if (executable_bundle.xla_input_shapes.has_value()) {
       shape_ptr = (*executable_bundle.xla_input_shapes)[i];
     }
     VariableDeviceShardingConfig sharding_config{
-        .hlo_sharding = std::move(hlo_sharding),
+        .hlo_sharding = executable_bundle.arg_hlo_shardings[i],
     };
     for (xla::ifrt::Device* device : devices->devices()) {
       sharding_config.device_ids.push_back(device->Id().value());

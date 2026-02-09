@@ -38,6 +38,7 @@ limitations under the License.
 #include "tensorflow/compiler/mlir/tfrt/transforms/ifrt/ifrt_types.h"
 #include "tensorflow/compiler/mlir/tfrt/transforms/ifrt/tf2hlo.h"
 #include "tensorflow/compiler/tf2xla/xla_helpers.h"
+#include "xla/hlo/ir/hlo_sharding.h"
 #include "xla/pjrt/pjrt_executable.h"
 #include "xla/python/ifrt/array.h"
 #include "xla/python/ifrt/client.h"
@@ -151,6 +152,8 @@ class IfrtServingExecutable {
     absl::flat_hash_map<IfrtLoadedVariableRegistry::Key,
                         IfrtLoadedVariableRegistry::LoadedVariable>
         variable_arrays;
+    std::vector<xla::HloSharding> arg_hlo_shardings;
+    std::vector<xla::HloSharding> retval_hlo_shardings;
 
     CachedExecutableBundle() = default;
     // Move only
